@@ -1,0 +1,6 @@
+{
+  "rpc": "https://api-testnet.elastos.io/esc",
+  "apiurl": "https://testnet.escription.io",
+  "privatekey": "",
+  "mnemonic":""
+}

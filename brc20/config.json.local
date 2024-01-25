@@ -1,0 +1,6 @@
+{
+  "rpc": "https://api-testnet.elastos.io/esc",
+  "rpclocal": "http://127.0.0.1:20636",
+  "apiurl": "escription.io",
+  "privatekey": ""
+}
