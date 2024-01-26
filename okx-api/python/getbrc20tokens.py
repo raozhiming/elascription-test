@@ -9,9 +9,16 @@ import timeit
 from datetime import datetime
 from urllib.parse import quote_plus, urlencode
 
-# BRC20TokenListUrlPre = '/api/v5/explorer/brc20/token-list?limit=50&page='
+# TODO: The token-list can only obtain up to 10,000 records.
+#       In order to obtain more data, currently it can only be obtained once in deploy time order and reverse order.
 # The maximum value of limit is 100
-BRC20TokenListUrlPre = '/api/v5/explorer/brc20/token-list?limit=100&page='
+# orderBy:
+#         deployTimeAsc：按部署时间从远到近返回
+#         deployTimeDesc：按部署时间从近到远返回
+#         default deployTimeAsc
+# BRC20TokenListUrlPre = '/api/v5/explorer/brc20/token-list?limit=100&page='
+BRC20TokenListUrlDeployTimeAscPre = '/api/v5/explorer/brc20/token-list?limit=100&orderBy=deployTimeAsc&page='
+BRC20TokenListUrlDeployTimeDescPre = '/api/v5/explorer/brc20/token-list?limit=100&orderBy=deployTimeDesc&page='
 BRC20TokenDetailUrlPre = '/api/v5/explorer/brc20/token-details?token='
 
 class bcolors:
@@ -102,11 +109,34 @@ def send_post_request(request_path, params):
 
     return data.decode("utf-8")
 
-def getBRC20TokenList(page):
-  brc20TokenListUrl = BRC20TokenListUrlPre + str(page)
+def getBRC20TokenList(page, deployTimeDesc = False):
+  if deployTimeDesc:
+    brc20TokenListUrl = BRC20TokenListUrlDeployTimeDescPre + str(page)
+  else:
+    brc20TokenListUrl = BRC20TokenListUrlDeployTimeAscPre + str(page)
+
   req = send_get_request(brc20TokenListUrl, None)
   result = json.loads(req)
   return result["data"][0]
+
+def getAllBRC20Tokens(deployTimeDesc = False):
+  tokenList = []
+  hoderThreshold = 100
+  mintRateThreshold = 0.2
+
+  result = getBRC20TokenList(1, deployTimeDesc)
+  for token in result['tokenList']:
+    if (int(token['holder']) >= hoderThreshold) and (float(token['mintRate']) >= mintRateThreshold):
+      tokenList.append(token)
+
+  pages = int(result["totalPage"])
+  for page in range(2, pages + 1):
+    result = getBRC20TokenList(page, deployTimeDesc)
+    print('Fetching Page:', page, ' / ', pages)
+    for token in result['tokenList']:
+      if (int(token['holder']) >= hoderThreshold) and (float(token['mintRate']) >= mintRateThreshold):
+        tokenList.append(token)
+  return tokenList
 
 def getBRC20TokenDetail(token):
   brc20TokenDetailUrl = BRC20TokenDetailUrlPre + token
@@ -125,46 +155,26 @@ startTime = timeit.default_timer()
 with open('config-okx.json', 'r') as configJson:
   api_config = json.loads(configJson.read())
 
-tokenList = []
 alltokenList = []
-hoderThreshold = 100
-mintRateThreshold = 0.2
+alltokenList = getAllBRC20Tokens(False)
+result = getAllBRC20Tokens(True)
 
-# ret = getBRC20TokenDetail('bel2')
-# print(ret)
+# TODO: The results have already filtered some data.
+if len(alltokenList) > 0 and len(result) > 0:
+  firstDeplyTime = int(alltokenList[-1]['deployTime'])
+  lastDeplyTime = int(result[-1]['deployTime'])
+  if firstDeplyTime < lastDeplyTime:
+    print(firstDeplyTime)
+    print(lastDeplyTime)
+    print('Warning: The data obtained may be incomplete!')
+  else:
+    print('There may be duplicate data!')
+alltokenList = alltokenList + result
 
-bel2 = {
-  "token": "bel2",
-  "totalSupply": "2100000000000000",
-  "mintAmount": "2100000000000000",
-}
-
-result = getBRC20TokenList(1)
-for token in result['tokenList']:
-  if (int(token['holder']) >= hoderThreshold) and (float(token['mintRate']) >= mintRateThreshold):
-    tokenList.append(token)
-
-pages = int(result["totalPage"])
-for page in range(2, pages + 1):
-  result = getBRC20TokenList(page)
-  print('Fetching Page:', page, ' / ', pages)
-  for token in result['tokenList']:
-    if (int(token['holder']) >= hoderThreshold) and (float(token['mintRate']) >= mintRateThreshold):
-      tokenList.append(token)
-
-find = False
-for brcToken in tokenList:
-  if brcToken['token'] == 'bel2':
-    find = True
-    break
-if not find:
-    print("The bel2 isn't in list, add it manualy")
-    tokenList.append(bel2)
-
-print("Token count", len(tokenList))
+print("Token count", len(alltokenList))
 
 with open("./brc20tokenlist.json", 'w') as file:
-  file.write(json.dumps(tokenList, indent=2))
+  file.write(json.dumps(alltokenList, indent=2))
 
 print('All finished')
 printTime()

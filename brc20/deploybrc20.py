@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
 import math
 import threading
+import time
 import timeit
 from queue import Queue
 
-from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from requestHelper import getESC20TokenList
 from web3 import Web3
@@ -24,6 +25,25 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
+
+#####################
+### SCRIPT PARAMS ###
+#####################
+
+parser = argparse.ArgumentParser(description='Deploy Esc20 Token',
+                                 formatter_class=argparse.RawTextHelpFormatter)
+parser.add_argument('-f', '--file', dest='file_path', metavar='PATH', required=False,
+                    help='Specify the filename of the Json.')
+args = parser.parse_args()
+if args.file_path == None:
+  TOKENS_JSON_FILENAME = 'brc20tokenlist.json'
+else:
+  TOKENS_JSON_FILENAME = args.file_path
+
+###############
+### METHODS ###
+###############
+
 def print_with_color(color, message):
     print(color + message + bcolors.ENDC)
 
@@ -33,6 +53,12 @@ def worker():
         print('Remain Tx count', q.qsize())
         w3.eth.send_raw_transaction(rawTransaction)
         q.task_done()
+
+USE_SLEEP = True
+def Sleep(seconds):
+  if USE_SLEEP:
+    print(' ****  wait for %ds  ****' % seconds)
+    time.sleep(seconds)
 
 def getWallet(privatekey):
   account: LocalAccount = w3.eth.account.from_key(str(privatekey))
@@ -94,24 +120,16 @@ def sendTransaction(wallet, txData):
       # print(result)
 
 def getAllESC20Tokens(limit = 50):
-  print('limit ', limit)
   allTokenList = []
   result = getESC20TokenList(1, limit)
-  # print(result['list'])
   allTokenList = allTokenList + result['list']
-  # for token in result['list']:
-  #   allTokenList.append(token)
 
   pages = math.ceil(int(result["total"]) / limit)
   for page in range(2, pages + 1):
     result = getESC20TokenList(page, limit)
     print('Fetching Page:', page, ' / ', pages)
-    # print(result['list'])
     allTokenList = allTokenList + result['list']
-    # for token in result['list']:
-    #   allTokenList.append(token)
 
-  # print("All ESC20 token count", len(allTokenList))
   return allTokenList
 
 def deployAndMintSingleThread(brc20toeknlist):
@@ -119,11 +137,20 @@ def deployAndMintSingleThread(brc20toeknlist):
   count=0
   for token in brc20toeknlist:
     count = count + 1
-    print("%d / %d" % (count, len(brc20toeknlist)))
+    print("Deploy %d / %d" % (count, len(brc20toeknlist)))
+    if int(count % 100) == 0:
+      Sleep(2)
 
     txData = getDeployTokenData(wallet.address, token['token'], token['totalSupply'], token['totalSupply'], totalnonce)
     totalnonce = totalnonce + 1
     sendTransaction(wallet, txData)
+
+  count=0
+  for token in brc20toeknlist:
+    count = count + 1
+    print("Mint %d / %d" % (count, len(brc20toeknlist)))
+    if int(count % 100) == 0:
+      Sleep(2)
 
     txData = getMintTokenData(wallet.address, token['token'], token['totalSupply'], totalnonce)
     totalnonce = totalnonce + 1
@@ -131,13 +158,8 @@ def deployAndMintSingleThread(brc20toeknlist):
 
 def deployAndMintMultiThread(brc20toeknlist, threadCount):
   global totalnonce
-  sendTx_threads = []
-  for i in range(0, threadCount):  # 创建1个线程用于read()，并添加到read_threads列表
-    t = threading.Thread(target=worker) # 执行的函数如果需要传递参数，threading.Thread(target=函数名,args=(参数，逗号隔开))
-    sendTx_threads.append(t)
-
-  for i in range(0,threadCount):  # 启动存放在read_threads和write_threads列表中的线程
-    sendTx_threads[i].start()
+  for i in range(0, threadCount):
+    t = threading.Thread(target=worker).start()
 
   count=0
   for token in brc20toeknlist:
@@ -149,8 +171,12 @@ def deployAndMintMultiThread(brc20toeknlist, threadCount):
     signed_txn = wallet.sign_transaction(txData)
     q.put(signed_txn.rawTransaction)
 
+    if int(count % 10) == 0:
+       Sleep(2)
+
   q.join()
-  printTime()
+
+  Sleep(2)
 
   count = 0
   for token in brc20toeknlist:
@@ -160,8 +186,11 @@ def deployAndMintMultiThread(brc20toeknlist, threadCount):
     totalnonce = totalnonce + 1
     signed_txn = wallet.sign_transaction(txData)
     q.put(signed_txn.rawTransaction)
+
+    if int(count % 10) == 0:
+       Sleep(2)
+
   q.join()
-  printTime()
 
 def printTime():
   elapsed = timeit.default_timer() - startTime
@@ -171,7 +200,7 @@ def printTime():
 
 startTime = timeit.default_timer()
 
-with open('brc20tokenlist.json', 'r') as brc20tokenlistJson:
+with open(TOKENS_JSON_FILENAME, 'r') as brc20tokenlistJson:
   brc20toeknlist = json.loads(brc20tokenlistJson.read())
 
 with open('config.json', 'r') as configJson:
@@ -191,9 +220,8 @@ print("Balance:", balance)
 totalnonce = w3.eth.get_transaction_count(wallet.address, 'latest')
 print("Nonce:", totalnonce)
 
-
 # Filter out tokens that have been deployed
-# allESC20TokenList = getAllESC20Tokens()
+# allESC20TokenList = getAllESC20Tokens(100)
 
 # noDeployTokens = []
 # for brcToken in brc20toeknlist:
@@ -205,11 +233,11 @@ print("Nonce:", totalnonce)
 #   if not find:
 #      noDeployTokens.append(brcToken)
 
+# print("noDeployTokens:", noDeployTokens)
 # print("noDeployTokens:", len(noDeployTokens))
 
-print("brc20toeknlist:", len(brc20toeknlist))
-
 # deployAndMintSingleThread(brc20toeknlist)
-# deployAndMintMultiThread(brc20toeknlist, 10)
+deployAndMintMultiThread(brc20toeknlist, 1)
 
 print('All finished')
+printTime()
